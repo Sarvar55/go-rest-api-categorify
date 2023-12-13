@@ -4,67 +4,51 @@ import (
 	"categori/service"
 	"categori/util"
 	"github.com/gofiber/fiber/v2"
-	_ "github.com/gofiber/fiber/v2"
 	"log"
 )
 
-func GetDomainInfo(c *fiber.Ctx) error {
+type DomainInfoController struct {
+	DomainService      *service.DomainService
+	LocationService    *service.LocationService
+}
+
+func NewDomainInfoController(domainService *service.DomainService, locationService *service.LocationService) *DomainInfoController {
+	return &DomainInfoController{
+		DomainService:   domainService,
+		LocationService: locationService,
+	}
+}
+
+func (controller *DomainInfoController) GetDomainInfo(c *fiber.Ctx) error {
 	domain := c.Params("domain")
 
 	ipAddress, err := util.ResolveDomain(domain)
 	if err != nil {
-		log.Println("Alan adı çözümleme hatası:", err)
-		res := fiber.Map{
-			"success": "false",
-			"message": "Domain adresi yanlış girilmiş olabilir",
-		}
-		return c.JSON(res)
+		return controller.handleError(c, "Alan adı çözümleme hatası:", "Domain adresi yanlış girilmiş olabilir")
 	}
 
-	log.Println(ipAddress)
 	ipDecimal, err := util.ConvertIPToDecimal(ipAddress[0])
-	log.Print(ipDecimal)
 	if err != nil {
-		log.Println("IP dönüşüm hatası:", err)
-		res := fiber.Map{
-			"success": "false",
-			"message": "Domain adresi yanlış girilmiş olabilir",
-		}
-		return c.JSON(res)
+		return controller.handleError(c, "IP dönüşüm hatası:", "Domain adresi yanlış girilmiş olabilir")
 	}
 
-	// MongoDB'den kategori bilgisini al
-	categoryDomain, err := service.GetLocationByDomainFromMongoDb(domain)
+	categoryDomain, err := controller.DomainService.GetLocationByDomainFromMongoDb(domain)
 	if err != nil {
-		log.Println("Konum sorgulama hatası:", err)
-		res := fiber.Map{
-			"success": "false",
-			"message": "Bu lokasyonda veri bulunamadı",
-		}
-		return c.JSON(res)
+		return controller.handleError(c, "Konum sorgulama hatası:", "Bu lokasyonda veri bulunamadı")
 	}
 
 	if categoryDomain == nil {
-		// categoryDomain nil ise, istediğiniz mesajı gönderin
-		res := fiber.Map{
+		return c.JSON(fiber.Map{
 			"success": "false",
 			"message": "Belirtilen domain veritabanında bulunamadı",
-		}
-		return c.JSON(res)
+		})
 	}
 
-	// SQLite'dan location bilgisini al
-	location, err := service.GetLocationByIPFromSQLLite(ipDecimal)
+	location, err := controller.LocationService.GetLocationByIPFromSQLLite(ipDecimal)
 	if err != nil {
-		log.Println("Konum sorgulama hatası:", err)
-		res := fiber.Map{
-			"success": "false",
-			"message": "Bu lokasyonda veri bulunamadı",
-		}
-		return c.JSON(res)
+		return controller.handleError(c, "Konum sorgulama hatası:", "Bu lokasyonda veri bulunamadı")
 	}
 
-	// Doğru bir şekilde response yapısını oluşturun
 	response := fiber.Map{
 		"ipaddress":    ipAddress,
 		"countryName":  location.CountryName,
@@ -73,4 +57,14 @@ func GetDomainInfo(c *fiber.Ctx) error {
 	}
 
 	return c.JSON(response)
+}
+
+
+func (controller *DomainInfoController) handleError(c *fiber.Ctx, logMessage, errorMessage string) error {
+	log.Println(logMessage)
+	res := fiber.Map{
+		"success": "false",
+		"message": errorMessage,
+	}
+	return c.JSON(res)
 }
